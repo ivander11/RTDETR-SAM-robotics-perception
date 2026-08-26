@@ -1,21 +1,23 @@
-import torch
-import numpy as np
 import cv2
-from ultralytics import RTDETR
-from mobile_sam import sam_model_registry, SamPredictor
+import numpy as np
 import pyrealsense2 as rs
+import torch
+from mobile_sam import SamPredictor, sam_model_registry
+from ultralytics import RTDETR
+
 
 class VisionPipeline:
     """
     AI Perception engine for robotic grasping
     Integrates RT-DETR (Detection), Mobile SAM (Segmentation), and 3D Deprojection
     """
-    def __init__(self, detr_weights="../models/best.pt", sam_weights="../models/mobile_sam.pt", device=None):
+
+    def __init__(self, detr_weights, sam_weights, device=None):
         self.device = device if device else ('cuda' if torch.cuda.is_available() else 'cpu')
-        
+
         print("Loading RT-DETR...")
         self.detr_model = RTDETR(detr_weights)
-        
+
         print("Loading Mobile SAM...")
         mobile_sam = sam_model_registry["vit_t"](checkpoint=sam_weights)
         mobile_sam.to(device=self.device)
@@ -29,22 +31,25 @@ class VisionPipeline:
         bgr_color = cv2.cvtColor(hsv_color, cv2.COLOR_HSV2BGR)[0][0]
         return int(bgr_color[0]), int(bgr_color[1]), int(bgr_color[2])
 
-    def detect(self, rgb_image, conf_threshold=0.5):
+    def detect(self, bgr_image, conf_threshold=0.5):
         """
         Executes object detection
-        
+
+        Args:
+            bgr_image (np.array): BGR frame from OpenCV or RealSense
+
         Returns:
             ultralytics.engine.results.Results: Detection data including bounding boxes
         """
-        return self.detr_model.predict(rgb_image, conf=conf_threshold, verbose=False)[0]
+        return self.detr_model.predict(bgr_image, conf=conf_threshold, verbose=False)[0]
 
     def segment(self, rgb_image, box):
-        """"Generates a high-precision mask for a specific bounding box
-        
+        """Generate a high-precision mask for a specific bounding box.
+
         Args:
             rgb_image (np.array): RGB frame from camera
             box (list): [x_min, y_min, x_max, y_max] from detector
-            
+
         Returns:
             np.array: Boolean mask where True represents the object pixels
         """
@@ -75,21 +80,25 @@ class VisionPipeline:
         Returns:
             tuple: ([x, y, z] in meters, centroid_x, centroid_y)
         """
-        y_pixels, x_pixels = np.where(mask == True)
+        y_pixels, x_pixels = np.where(mask)
         if len(x_pixels) == 0:
             return None, None, None
 
         cx, cy = int(np.mean(x_pixels)), int(np.mean(y_pixels))
-        
+
         depth_data = np.asanyarray(depth_frame.get_data())
-        depth_region = depth_data[max(0, cy-2):min(480, cy+3), max(0, cx-2):min(640, cx+3)]
+        height, width = depth_data.shape[:2]
+        depth_region = depth_data[
+            max(0, cy-2):min(height, cy+3),
+            max(0, cx-2):min(width, cx+3),
+        ]
         valid_depths = depth_region[depth_region > 0]
-        
+
         if len(valid_depths) == 0:
             return None, cx, cy
-            
+
         depth_meters = np.median(valid_depths) * depth_frame.get_units()
         depth_intrin = depth_frame.profile.as_video_stream_profile().intrinsics
         spatial_coords = rs.rs2_deproject_pixel_to_point(depth_intrin, [cx, cy], depth_meters)
-        
+
         return spatial_coords, cx, cy
