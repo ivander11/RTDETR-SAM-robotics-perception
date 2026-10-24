@@ -1,0 +1,4 @@
+-r ufactory_lite6/requirements-export.txt
+gymnasium==1.2.3
+pybullet==3.2.7
+stable-baselines3==2.8.0

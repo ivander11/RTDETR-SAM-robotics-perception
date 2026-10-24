@@ -1,6 +1,6 @@
 # Lite6 Perception and Reinforcement Learning
 
-An undergraduate thesis project exploring a modular perception-to-manipulation pipeline for the UFACTORY Lite6 robot. The repository currently contains a real-time RGB-D perception pipeline and a reproducible PyBullet model setup. A Gymnasium reaching environment and Stable-Baselines3 DDPG training pipeline are the next implementation stage.
+An undergraduate thesis project exploring a modular perception-to-manipulation pipeline for the UFACTORY Lite6 robot. The repository currently contains a real-time RGB-D perception pipeline, a reproducible PyBullet model setup, and a Stable-Baselines3 DDPG baseline for coordinate-based reaching.
 
 The perception system combines RT-DETR object detection, MobileSAM instance segmentation, and Intel RealSense depth data. It detects objects in a color frame, uses each detection as a prompt for MobileSAM, and estimates the segmented object's 3D position from the aligned depth frame.
 
@@ -42,8 +42,8 @@ RealSense color + depth frames
 | RT-DETR + MobileSAM perception | Implemented |
 | RealSense RGB-D capture and camera-frame XYZ estimation | Implemented |
 | Official Lite6 description exported and loaded in PyBullet | Implemented |
-| Gymnasium Lite6 reaching environment | In progress |
-| Stable-Baselines3 DDPG training and evaluation | Planned next |
+| Gymnasium Lite6 reaching environment | Implemented baseline |
+| Stable-Baselines3 DDPG training and evaluation | Implemented baseline |
 | Calibrated vision-to-robot target transfer | Future integration |
 
 The first RL task is coordinate-based reaching. The policy will receive robot state and a 3D target coordinate; it will not receive RGB or depth images. Vision integration will later provide target coordinates to a policy trained across reachable goals.
@@ -52,11 +52,10 @@ The first RL task is coordinate-based reaching. The policy will receive robot st
 
 The robot assets under `ufactory_lite6/` were selected from UFACTORY's official `xarm_ros2` repository at commit `ac736c92b02de7ca7e0be6f737d77d46707464d8`. The upstream license and source record are included. See [`ufactory_lite6/SOURCE.md`](ufactory_lite6/SOURCE.md) for the imported files and local adaptations.
 
-Install the simulation, RL, and Xacro export dependencies:
+Install the simulation, RL, and Xacro export dependencies from the repository root:
 
 ```bash
-pip install pybullet==3.2.7 gymnasium==1.2.3 stable-baselines3==2.8.0
-pip install -r ufactory_lite6/requirements-export.txt
+pip install -r requirements-rl.txt
 ```
 
 Generate the standalone URDF:
@@ -78,6 +77,80 @@ python scripts/simulation/load_lite6.py --gui
 ```
 
 The loader verifies that the model contains six revolute joints and remains numerically finite during a short simulation. This is a model-loading check, not evidence that the RL task or physical dynamics are valid.
+
+## DDPG Reaching Baseline
+
+The first RL environment is intentionally coordinate-based and does not use camera images. Its interface is:
+
+| Item | Definition |
+|---|---|
+| Observation | End-effector XYZ, end-effector linear velocity XYZ, target XYZ (9 values) |
+| Action | Normalized Cartesian displacement `[dx, dy, dz]` in `[-1, 1]` |
+| Action scale | At most 0.02 m per policy action on each axis |
+| Robot command | PyBullet inverse kinematics followed by joint position control |
+| Reward | Negative Euclidean end-effector-to-target distance |
+| Success | Distance at or below 0.01 m |
+| Episode limit | 50 policy actions |
+| Simulation rate | 24 physics steps at 240 Hz per policy action |
+
+The learning loop is:
+
+```text
+observation -> DDPG actor -> Cartesian action -> inverse kinematics
+      ^                                              |
+      |                                              v
+next observation + reward <- PyBullet physics <- joint targets
+
+transition -> replay buffer -> critic update -> actor update
+```
+
+Inverse kinematics performs the Cartesian-to-joint conversion. Therefore, this baseline tests whether DDPG can learn coordinate-based reaching; it does not yet demonstrate learned low-level joint control, grasping, collision avoidance, or vision-based control. The dense reward also means HER is not required for this first baseline.
+
+First validate the Gymnasium/SB3 interface and a random-action rollout:
+
+```bash
+python scripts/training/check_lite6_env.py
+```
+
+Then train the simplest fixed-goal baseline:
+
+```bash
+python scripts/training/train_ddpg.py \
+  --timesteps 10000 \
+  --goal-mode fixed \
+  --run-name fixed_seed0 \
+  --seed 0
+```
+
+Evaluate the best checkpoint without exploration noise:
+
+```bash
+python scripts/evaluation/evaluate_ddpg.py \
+  runs/ddpg/fixed_seed0/best_model/best_model.zip \
+  --episodes 100 \
+  --goal-mode fixed
+```
+
+Only after the fixed target works, train across randomized reachable coordinates. A longer unattended run can use:
+
+```bash
+python scripts/training/train_ddpg.py \
+  --timesteps 500000 \
+  --goal-mode random \
+  --run-name random_seed0_500k \
+  --seed 0 \
+  --checkpoint-freq 50000 \
+  --eval-freq 10000 \
+  --eval-episodes 20
+```
+
+Each run creates an isolated directory under `runs/ddpg/` containing its configuration, monitor CSV files, evaluation history, periodic checkpoints, best evaluation model, and final model. The entire `runs/` directory is ignored by Git because generated experiments and model weights should not be mixed with source code. Keep important experiment summaries separately when results are ready for the thesis.
+
+If a ROS installation has injected incompatible packages through `PYTHONPATH`, run the same commands with the project environment explicitly, for example:
+
+```bash
+env -u PYTHONPATH .venv/bin/python scripts/training/check_lite6_env.py
+```
 
 ## Main Features
 
@@ -159,15 +232,22 @@ This was one of the main gaps between the reported evaluation metrics and actual
 │   │   ├── export_lite6.py         # Generate a standalone Lite6 URDF
 │   │   ├── load_lite6.py           # Validate the model in PyBullet
 │   │   └── pybullet_test.py        # Minimal PyBullet learning example
+│   ├── training/
+│   │   ├── check_lite6_env.py       # Validate the Gymnasium environment
+│   │   └── train_ddpg.py            # Train and checkpoint SB3 DDPG
+│   ├── evaluation/
+│   │   └── evaluate_ddpg.py         # Evaluate a saved DDPG policy
 │   ├── record_dataset_frames.py    # Capture sharp RealSense color frames
 │   ├── extract_frames.py           # Extract frames from recorded video
 │   ├── coco_split.py               # Create train/validation/test COCO splits
 │   └── clean_dataset.py            # Remove near-duplicate labeled scenes
 ├── src/
 │   ├── hardware/realsense.py       # RealSense capture and depth alignment
+│   ├── control/lite6_env/reach_env.py # PyBullet reaching environment
 │   └── perception/vision.py        # Detection, segmentation, and 3D extraction
 ├── ufactory_lite6/                  # Licensed Lite6 assets and generated URDF
 ├── .env.example                    # Local model-path configuration example
+├── requirements-rl.txt             # Pinned simulation and RL dependencies
 └── requirements.txt                # Python dependencies
 ```
 
@@ -179,7 +259,7 @@ This was one of the main gaps between the reported evaluation metrics and actual
 - MobileSAM `mobile_sam.pt` checkpoint
 - CUDA-capable GPU recommended for real-time inference
 - PyBullet 3.2.7 for Lite6 simulation
-- Gymnasium 1.2.3 and Stable-Baselines3 2.8.0 for the upcoming RL environment
+- Gymnasium 1.2.3 and Stable-Baselines3 2.8.0 for the RL environment
 
 The model checkpoints and datasets are local assets and are not included in the repository.
 
@@ -219,5 +299,5 @@ Both model paths must be supplied through command-line arguments, the shell envi
 - Depth accuracy depends on valid aligned depth at the selected centroid.
 - Camera-frame coordinates require a separate calibrated transform before they can be used in another coordinate system.
 - The current PyBullet model is a bare six-joint Lite6 arm without a gripper or calibrated tool-center point.
-- The Gymnasium reaching environment and DDPG training pipeline have not yet been implemented in the tracked source.
+- The current DDPG task uses a small predefined target region and PyBullet inverse kinematics; broader workspace coverage and lower-level control remain future experiments.
 - The simulation does not currently model a RealSense RGB-D camera or use image observations for reinforcement learning.
