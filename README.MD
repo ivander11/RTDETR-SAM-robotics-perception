@@ -1,8 +1,8 @@
-# RT-DETR + MobileSAM Vision Pipeline
+# Lite6 Perception and Reinforcement Learning
 
-A real-time object perception pipeline that combines RT-DETR object detection, MobileSAM instance segmentation, and Intel RealSense depth data.
+An undergraduate thesis project exploring a modular perception-to-manipulation pipeline for the UFACTORY Lite6 robot. The repository currently contains a real-time RGB-D perception pipeline and a reproducible PyBullet model setup. A Gymnasium reaching environment and Stable-Baselines3 DDPG training pipeline are the next implementation stage.
 
-The system detects objects in a color frame, uses each detection as a prompt for MobileSAM, and estimates the segmented object's 3D position from the aligned depth frame. Results are displayed with bounding boxes, segmentation masks, class labels, confidence scores, and camera-frame coordinates.
+The perception system combines RT-DETR object detection, MobileSAM instance segmentation, and Intel RealSense depth data. It detects objects in a color frame, uses each detection as a prompt for MobileSAM, and estimates the segmented object's 3D position from the aligned depth frame.
 
 This project was developed as part of my undergraduate research project at the **Advanced Robotics and AI Lab, Yuan Ze University**. The perception system is designed to identify objects in cluttered tabletop environments and extract their spatial coordinates for downstream robotic manipulation.
 
@@ -12,7 +12,7 @@ This project was developed as part of my undergraduate research project at the *
   <sub><em>Note: The project initially used a white-bottle class, which was later replaced with a glue class during dataset refinement.</em></sub>
 </p>
 
-## Pipeline
+## Perception Pipeline
 
 ```text
 RealSense color + depth frames
@@ -34,6 +34,50 @@ RealSense color + depth frames
             v
     OpenCV visualization
 ```
+
+## Project Status
+
+| Component | Status |
+|---|---|
+| RT-DETR + MobileSAM perception | Implemented |
+| RealSense RGB-D capture and camera-frame XYZ estimation | Implemented |
+| Official Lite6 description exported and loaded in PyBullet | Implemented |
+| Gymnasium Lite6 reaching environment | In progress |
+| Stable-Baselines3 DDPG training and evaluation | Planned next |
+| Calibrated vision-to-robot target transfer | Future integration |
+
+The first RL task is coordinate-based reaching. The policy will receive robot state and a 3D target coordinate; it will not receive RGB or depth images. Vision integration will later provide target coordinates to a policy trained across reachable goals.
+
+## Lite6 PyBullet Simulation
+
+The robot assets under `ufactory_lite6/` were selected from UFACTORY's official `xarm_ros2` repository at commit `ac736c92b02de7ca7e0be6f737d77d46707464d8`. The upstream license and source record are included. See [`ufactory_lite6/SOURCE.md`](ufactory_lite6/SOURCE.md) for the imported files and local adaptations.
+
+Install the simulation, RL, and Xacro export dependencies:
+
+```bash
+pip install pybullet==3.2.7 gymnasium==1.2.3 stable-baselines3==2.8.0
+pip install -r ufactory_lite6/requirements-export.txt
+```
+
+Generate the standalone URDF:
+
+```bash
+python scripts/simulation/export_lite6.py
+```
+
+Run the headless model check:
+
+```bash
+python scripts/simulation/load_lite6.py
+```
+
+Open the PyBullet GUI for a visual check:
+
+```bash
+python scripts/simulation/load_lite6.py --gui
+```
+
+The loader verifies that the model contains six revolute joints and remains numerically finite during a short simulation. This is a model-loading check, not evidence that the RL task or physical dynamics are valid.
 
 ## Main Features
 
@@ -111,6 +155,10 @@ This was one of the main gaps between the reported evaluation metrics and actual
 │   └── yolo26_trainmodels.ipynb    # YOLO training experiments
 ├── scripts/
 │   ├── run_vision_test.py          # Modular live vision entry point
+│   ├── simulation/
+│   │   ├── export_lite6.py         # Generate a standalone Lite6 URDF
+│   │   ├── load_lite6.py           # Validate the model in PyBullet
+│   │   └── pybullet_test.py        # Minimal PyBullet learning example
 │   ├── record_dataset_frames.py    # Capture sharp RealSense color frames
 │   ├── extract_frames.py           # Extract frames from recorded video
 │   ├── coco_split.py               # Create train/validation/test COCO splits
@@ -118,6 +166,7 @@ This was one of the main gaps between the reported evaluation metrics and actual
 ├── src/
 │   ├── hardware/realsense.py       # RealSense capture and depth alignment
 │   └── perception/vision.py        # Detection, segmentation, and 3D extraction
+├── ufactory_lite6/                  # Licensed Lite6 assets and generated URDF
 ├── .env.example                    # Local model-path configuration example
 └── requirements.txt                # Python dependencies
 ```
@@ -129,6 +178,8 @@ This was one of the main gaps between the reported evaluation metrics and actual
 - RT-DETR `.pt` weights trained for the target objects
 - MobileSAM `mobile_sam.pt` checkpoint
 - CUDA-capable GPU recommended for real-time inference
+- PyBullet 3.2.7 for Lite6 simulation
+- Gymnasium 1.2.3 and Stable-Baselines3 2.8.0 for the upcoming RL environment
 
 The model checkpoints and datasets are local assets and are not included in the repository.
 
@@ -167,3 +218,6 @@ Both model paths must be supplied through command-line arguments, the shell envi
 - The reported 3D position represents the segmented object's mask centroid, not a grasp pose.
 - Depth accuracy depends on valid aligned depth at the selected centroid.
 - Camera-frame coordinates require a separate calibrated transform before they can be used in another coordinate system.
+- The current PyBullet model is a bare six-joint Lite6 arm without a gripper or calibrated tool-center point.
+- The Gymnasium reaching environment and DDPG training pipeline have not yet been implemented in the tracked source.
+- The simulation does not currently model a RealSense RGB-D camera or use image observations for reinforcement learning.
