@@ -18,6 +18,7 @@ runs/
 __pycache__/
 *.py[cod]
 tempCodeRunnerFile.py
+tmp/
 
 # Jupyter Notebooks
 .ipynb_checkpoints/

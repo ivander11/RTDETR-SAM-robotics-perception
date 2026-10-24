@@ -1,0 +1,3 @@
+# Preserve vendored UFACTORY files byte-for-byte, including upstream whitespace.
+ufactory_lite6/LICENSE -whitespace
+ufactory_lite6/upstream/** -whitespace

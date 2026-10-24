@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="lite6">
+  <!-- The exporter supplies these paths; no ROS package lookup is needed. -->
+  <xacro:arg name="description_dir" default=""/>
+  <xacro:arg name="lite6_macro_path" default=""/>
+  <xacro:property name="use_xacro_load_yaml" value="true"/>
+  <xacro:property name="mesh_suffix" value="stl"/>
+  <!-- Mesh paths are relative to the generated urdf/lite6.urdf file. -->
+  <xacro:property name="mesh_path" value="../upstream/xarm_description/meshes"/>
+
+  <xacro:include filename="$(arg description_dir)/urdf/common/common.link.xacro"/>
+  <xacro:include filename="$(arg description_dir)/urdf/common/common.material.xacro"/>
+  <xacro:include filename="$(arg lite6_macro_path)"/>
+
+  <xacro:common_material prefix=""/>
+  <xacro:lite6_urdf prefix=""
+    kinematics_params_filename="$(arg description_dir)/config/kinematics/default/lite6_default_kinematics.yaml"/>
+</robot>
